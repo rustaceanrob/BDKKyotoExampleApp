@@ -11,7 +11,7 @@ import BitcoinDevKit
 class MessageHandler: ObservableObject, NodeMessageHandler {
     @Published var progress: Double = 0
     
-    func handleStateChange(state: BitcoinDevKit.NodeState) {
+    func handleStateChanged(state: BitcoinDevKit.NodeState) {
         DispatchQueue.main.async { [self] in
             switch state {
             case .behind:
@@ -28,13 +28,44 @@ class MessageHandler: ObservableObject, NodeMessageHandler {
         }
     }
     
-    func handleWarning(warning: String) {
-        print(warning)
-    }
-    
     func handleDialog(dialog: String) {
         print(dialog)
     }
+    
+    func handleWarning(warning: BitcoinDevKit.Warning) {
+        switch warning {
+        case .notEnoughConnections:
+            print("Searching for connections")
+        case .peerTimedOut:
+            print("A peer timed out")
+        case .unsolicitedMessage:
+            print("A peer sent an unsolicited message")
+        case .unlinkableAnchor:
+            print("The configured recovery does not link to block headers stored in the database")
+        case .corruptedHeaders:
+            print("The loaded headers do not link together")
+        case .transactionRejected:
+            print("A transaction was rejected")
+        case .failedPersistance(warning: let warning):
+            print(warning)
+        case .evaluatingFork:
+            print("Evaluating a potential fork")
+        case .emptyPeerDatabase:
+            print("The peer database is empty")
+        case .unexpectedSyncError(warning: let warning):
+            print(warning)
+        }
+    }
+    
+    func handleSynced(tip: UInt32) {
+        print("Chain synced to height \(tip)")
+    }
+    
+    func handleTxSent() {
+        print("Transaction broadcast")
+    }
+    
+    func handleBlocksDisconnected(blocks: [UInt32]) {}
 }
 
 struct ContentView: View {
