@@ -10,6 +10,7 @@ import BitcoinDevKit
 
 class MessageHandler: ObservableObject, NodeMessageHandler {
     @Published var progress: Double = 20
+    @Published var height: UInt32? = nil
     
     func handleStateChanged(state: BitcoinDevKit.NodeState) {
         DispatchQueue.main.async { [self] in
@@ -58,6 +59,9 @@ class MessageHandler: ObservableObject, NodeMessageHandler {
     }
     
     func handleSynced(tip: UInt32) {
+        DispatchQueue.main.async { [self] in
+            height = tip
+        }
         print("Chain synced to height \(tip)")
     }
     
@@ -76,9 +80,18 @@ struct ContentView: View {
         VStack{
             ProgressView(value: messageHandler.progress, total: 100)
             Spacer()
-            Text("\(balance)")
+            Text("\(balance) Satoshis")
                 .font(.largeTitle)
                 .bold()
+            Spacer()
+            if messageHandler.height != nil {
+                Text("Synced to height: \(messageHandler.height!)")
+                    .font(.callout)
+                    .bold()
+            } else {
+                Text("Syncing...")
+                    .font(.callout)
+            }
             Spacer()
         }
         .padding()
