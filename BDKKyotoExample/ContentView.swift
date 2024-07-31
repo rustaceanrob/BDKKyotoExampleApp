@@ -9,7 +9,7 @@ import SwiftUI
 import BitcoinDevKit
 
 class MessageHandler: ObservableObject, NodeMessageHandler {
-    @Published var progress: Double = 0
+    @Published var progress: Double = 20
     
     func handleStateChanged(state: BitcoinDevKit.NodeState) {
         DispatchQueue.main.async { [self] in
@@ -89,16 +89,17 @@ struct ContentView: View {
             balance = wallet.balance().total.toSat();
             let peers = [Peer.v4(q1: 23, q2: 137, q3: 57, q4: 100)];
             let path = URL.documentsDirectory.path();
-            print(path);
             let spv = buildLightClient(wallet: wallet, peers: peers, connections: 1, recoveryHeight: 170_000, dataDir: path, logger: messageHandler)
             let node = spv.node;
             let client = spv.client;
             runNode(node: node)
             Task {
-                let update = await client.update();
-                if update != nil {
-                    try! wallet.applyUpdate(update: update!)
-                    balance = wallet.balance().total.toSat();
+                while true {
+                    let update = await client.update();
+                    if update != nil {
+                        try! wallet.applyUpdate(update: update!)
+                        balance = wallet.balance().total.toSat();
+                    }
                 }
             }
             
