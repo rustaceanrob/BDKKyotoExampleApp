@@ -8,68 +8,35 @@
 import SwiftUI
 import BitcoinDevKit
 
-class MessageHandler: ObservableObject, NodeMessageHandler {
-    @Published var progress: Double = 20
+let recv = try! Descriptor.init(descriptor: "tr([12071a7c/86'/1'/0']tpubDCaLkqfh67Qr7ZuRrUNrCYQ54sMjHfsJ4yQSGb3aBr1yqt3yXpamRBUwnGSnyNnxQYu7rqeBiPfw3mjBcFNX4ky2vhjj9bDrGstkfUbLB9T/0/*)", network: .signet);
+let change = try! Descriptor.init(descriptor: "tr([12071a7c/86'/1'/0']tpubDCaLkqfh67Qr7ZuRrUNrCYQ54sMjHfsJ4yQSGb3aBr1yqt3yXpamRBUwnGSnyNnxQYu7rqeBiPfw3mjBcFNX4ky2vhjj9bDrGstkfUbLB9T/1/*)", network: .signet);
+let path = URL.temporaryDirectory.path()
+
+class MessageHandler: ObservableObject {
+    @Published var progress: Float = 0
     @Published var height: UInt32? = nil
+    @Published var connected: Bool = false
     
-    func handleStateChanged(state: BitcoinDevKit.NodeState) {
+    func handleLog(log: BitcoinDevKit.Log) {
         DispatchQueue.main.async { [self] in
-            switch state {
-            case .behind:
-                progress = 20
-            case .headersSynced:
-                progress = 40
-            case .filterHeadersSynced:
-                progress = 60
-            case .filtersSynced:
-                progress = 80
-            case .transactionsSynced:
-                progress = 100
+            switch log {
+            case .debug(log: let log): print(log)
+            case .connectionsMet: self.connected = true
+            case .stateUpdate(nodeState: let state): print(state)
+            case .txSent(txid: let txid): print("Sent transaction: \(txid)")
+            case .progress(progress: let progress): self.progress = progress
             }
         }
     }
     
-    func handleDialog(dialog: String) {
-        print(dialog)
-    }
-    
-    func handleWarning(warning: BitcoinDevKit.Warning) {
-        switch warning {
-        case .notEnoughConnections:
-            print("Searching for connections")
-        case .peerTimedOut:
-            print("A peer timed out")
-        case .unsolicitedMessage:
-            print("A peer sent an unsolicited message")
-        case .unlinkableAnchor:
-            print("The configured recovery does not link to block headers stored in the database")
-        case .corruptedHeaders:
-            print("The loaded headers do not link together")
-        case .transactionRejected:
-            print("A transaction was rejected")
-        case .failedPersistance(warning: let warning):
-            print(warning)
-        case .evaluatingFork:
-            print("Evaluating a potential fork")
-        case .emptyPeerDatabase:
-            print("The peer database is empty")
-        case .unexpectedSyncError(warning: let warning):
-            print(warning)
-        }
-    }
-    
-    func handleSynced(tip: UInt32) {
+    func handleWarning(warn: BitcoinDevKit.Warning) {
         DispatchQueue.main.async { [self] in
-            height = tip
+            switch warn {
+            case .needConnections: self.connected = false
+            default: print(warn)
+            }
         }
-        print("Chain synced to height \(tip)")
     }
-    
-    func handleTxSent() {
-        print("Transaction broadcast")
-    }
-    
-    func handleBlocksDisconnected(blocks: [UInt32]) {}
 }
 
 struct ContentView: View {
@@ -78,40 +45,59 @@ struct ContentView: View {
     
     var body: some View {
         VStack{
-            ProgressView(value: messageHandler.progress, total: 100)
+            HStack {
+                if messageHandler.connected {
+                    Image(systemName: "point.3.filled.connected.trianglepath.dotted")
+                        .foregroundStyle(.green)
+                } else {
+                    Image(systemName: "point.3.connected.trianglepath.dotted")
+                        .foregroundStyle(.red)
+                }
+                ProgressView(value: messageHandler.progress, total: 1.0)
+                    .foregroundStyle(.green)
+            }
             Spacer()
             Text("\(balance) Satoshis")
                 .font(.largeTitle)
                 .bold()
             Spacer()
-            if messageHandler.height != nil {
-                Text("Synced to height: \(messageHandler.height!)")
-                    .font(.callout)
-                    .bold()
-            } else {
-                Text("Syncing...")
-                    .font(.callout)
-            }
-            Spacer()
         }
         .padding()
         .onAppear {
-            let recv = try! Descriptor.init(descriptor: "tr([7d94197e/86'/1'/0']tpubDCyQVJj8KzjiQsFjmb3KwECVXPvMwvAxxZGCP9XmWSopmjW3bCV3wD7TgxrUhiGSueDS1MU5X1Vb1YjYcp8jitXc5fXfdC1z68hDDEyKRNr/0/*)", network: .signet);
-            let change = try! Descriptor.init(descriptor: "tr([7d94197e/86'/1'/0']tpubDCyQVJj8KzjiQsFjmb3KwECVXPvMwvAxxZGCP9XmWSopmjW3bCV3wD7TgxrUhiGSueDS1MU5X1Vb1YjYcp8jitXc5fXfdC1z68hDDEyKRNr/1/*)", network: .signet);
-            let wallet = try! Wallet.newOrLoad(descriptor: recv, changeDescriptor: change, changeSet: nil, network: .signet);
+            let wallet = try! Wallet(descriptor: recv, changeDescriptor: change, network: .signet, connection: .newInMemory())
             balance = wallet.balance().total.toSat();
-            let peers = [Peer.v4(q1: 23, q2: 137, q3: 57, q4: 100)];
-            let path = URL.documentsDirectory.path();
-            let spv = buildLightClient(wallet: wallet, peers: peers, connections: 1, recoveryHeight: 170_000, dataDir: path, logger: messageHandler)
-            let node = spv.node;
-            let client = spv.client;
-            runNode(node: node)
+            let ip_addr = IpAddress.fromIpv4(q1: 174, q2: 50, q3: 212, q4: 60)
+            let peer = Peer(address: ip_addr, port: nil, v2Transport: false)
+            let spv = try! CbfBuilder()
+                .connections(connections: 1)
+                .dataDir(dataDir: path)
+                .scanType(scanType: .recovery(fromHeight: 200_000))
+                .build(wallet: wallet)
+            let node = spv.node
+            let client = spv.client
+            node.run()
             Task {
                 while true {
                     let update = await client.update();
                     if update != nil {
                         try! wallet.applyUpdate(update: update!)
                         balance = wallet.balance().total.toSat();
+                    }
+                }
+            }
+            Task {
+                while true {
+                    let log = try? await client.nextLog()
+                    if let log = log {
+                        messageHandler.handleLog(log: log)
+                    }
+                }
+            }
+            Task {
+                while true {
+                    let warn = try? await client.nextWarning()
+                    if let warn = warn {
+                        messageHandler.handleWarning(warn: warn)
                     }
                 }
             }
