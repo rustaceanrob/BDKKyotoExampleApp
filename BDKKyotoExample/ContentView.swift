@@ -8,19 +8,49 @@
 import SwiftUI
 import BitcoinDevKit
 
-let recv = try! Descriptor.init(descriptor: "tr([12071a7c/86'/1'/0']tpubDCaLkqfh67Qr7ZuRrUNrCYQ54sMjHfsJ4yQSGb3aBr1yqt3yXpamRBUwnGSnyNnxQYu7rqeBiPfw3mjBcFNX4ky2vhjj9bDrGstkfUbLB9T/0/*)", network: .signet);
-let change = try! Descriptor.init(descriptor: "tr([12071a7c/86'/1'/0']tpubDCaLkqfh67Qr7ZuRrUNrCYQ54sMjHfsJ4yQSGb3aBr1yqt3yXpamRBUwnGSnyNnxQYu7rqeBiPfw3mjBcFNX4ky2vhjj9bDrGstkfUbLB9T/1/*)", network: .signet);
-let path = URL.temporaryDirectory.path()
+let network = Network.bitcoin
+let scanHeight: UInt32 = 830_000
+let numConnections: UInt8 = 1
+// Taken from BIP382 - SegWit output descriptors
+let recv = try! Descriptor.init(descriptor: "sh(wpkh(xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi/10/20/30/40/*))", network: network);
+let change = try! Descriptor.init(descriptor: "wpkh(xpub69H7F5d8KSRgmmdJg2KhpAK8SR3DjMwAdkxj3ZuxV27CprR9LgpeyGmXUbC6wb7ERfvrnKZjXoUmmDznezpbZb7ap6r1D3tgFxHmwMkQTPH/1/2/*)", network: network);
+let path = URL.documentsDirectory.path()
 
 class MessageHandler: ObservableObject {
     @Published var progress: Float = 0
     @Published var height: UInt32? = nil
     @Published var connected: Bool = false
     
-    func handleLog(log: BitcoinDevKit.Log) {
+    func listen(client: CbfClient) {
+        Task {
+            while true {
+                let log = try? await client.nextLog()
+                if let log = log {
+                    print(log)
+                }
+            }
+        }
+        Task {
+            while true {
+                let log = try? await client.nextInfo()
+                if let log = log {
+                    self.handleInfo(log: log)
+                }
+            }
+        }
+        Task {
+            while true {
+                let warn = try? await client.nextWarning()
+                if let warn = warn {
+                    self.handleWarning(warn: warn)
+                }
+            }
+        }
+    }
+    
+    func handleInfo(log: BitcoinDevKit.Info) {
         DispatchQueue.main.async { [self] in
             switch log {
-            case .debug(log: let log): print(log)
             case .connectionsMet: self.connected = true
             case .stateUpdate(nodeState: let state): print(state)
             case .txSent(txid: let txid): print("Sent transaction: \(txid)")
@@ -55,6 +85,7 @@ struct ContentView: View {
                 }
                 ProgressView(value: messageHandler.progress, total: 1.0)
                     .foregroundStyle(.green)
+                    .animation(.easeInOut(duration: 0.3), value: messageHandler.progress)
             }
             Spacer()
             Text("\(balance) Satoshis")
@@ -64,44 +95,26 @@ struct ContentView: View {
         }
         .padding()
         .onAppear {
-            let wallet = try! Wallet(descriptor: recv, changeDescriptor: change, network: .signet, connection: .newInMemory())
+            let wallet = try! Wallet(descriptor: recv, changeDescriptor: change, network: network, connection: .newInMemory())
             balance = wallet.balance().total.toSat();
-            let ip_addr = IpAddress.fromIpv4(q1: 174, q2: 50, q3: 212, q4: 60)
-            let peer = Peer(address: ip_addr, port: nil, v2Transport: false)
             let spv = try! CbfBuilder()
-                .connections(connections: 1)
+                .connections(connections: numConnections)
                 .dataDir(dataDir: path)
-                .scanType(scanType: .recovery(fromHeight: 200_000))
+                .scanType(scanType: .recovery(fromHeight: scanHeight))
                 .build(wallet: wallet)
             let node = spv.node
             let client = spv.client
             node.run()
+            messageHandler.listen(client: client)
             Task {
                 while true {
-                    let update = await client.update();
-                    if update != nil {
-                        try! wallet.applyUpdate(update: update!)
-                        balance = wallet.balance().total.toSat();
-                    }
+                    let start = Date()
+                    let update = await client.update()
+                    try! wallet.applyUpdate(update: update)
+                    let syncTime = -1 * start.timeIntervalSinceNow
+                    print("Sync time \(syncTime)")
                 }
             }
-            Task {
-                while true {
-                    let log = try? await client.nextLog()
-                    if let log = log {
-                        messageHandler.handleLog(log: log)
-                    }
-                }
-            }
-            Task {
-                while true {
-                    let warn = try? await client.nextWarning()
-                    if let warn = warn {
-                        messageHandler.handleWarning(warn: warn)
-                    }
-                }
-            }
-            
         }
     }
 }

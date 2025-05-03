@@ -1,0 +1,23 @@
+830_000 - 895_000
+
+Common:
+Memory: 32MB -> 73.5MB
+Nework: 1.5GB downloads
+Disk writes: 29MB
+Disk reads: 35MB
+
+**First peer*:
+Time: 76 seconds
+CPU: Full capacity
+Download speed: ~5-10 MB/s
+
+**Second peer**:
+Time: 427 seconds
+CPU: 20-50 percent
+Download speed: < 2MB/s
+
+**Third peer**
+Time: 950 seconds
+CPU: 10-50 percent
+Download speed: ~0.5-5 MB/s
+
